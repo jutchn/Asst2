@@ -279,10 +279,19 @@ void printPairs(struct FileNode* head) {
     }
 }
 
+typedef struct tInput {
+    char* name;
+    pthreads* phead;
+    struct FileNode* front;
+    pthread_mutex_t* lock;
+}tInput;
+
 typedef struct pthreads {
     pthread_t thread_id;
     pthreads* next;
 }pthreads;
+
+
 
 pthreads* addThread(pthreads *head, pthread_t new){
     pthreads* newThread = (pthreads*)malloc(sizeof(pthreads));
@@ -327,16 +336,17 @@ int validDir(char* dirname){
      else return 1;
 }
 
-int handleDir(char* dirname){
+int handleDir(tInput *input){
+    char* dirname= input->name;
+    pthreads* phead = input->phead;
+    pthread_mutex_t* lock = input->lock;
+    struct FileNode* front = input->front;
     if(validDir(dirname) == -1){
         return -1;
     }
     DIR* dir = opendir(dirname);
     struct dirent *dp;
     struct stat path_stat;
-    //printf(dirname);
-    
-    int used = 0;
     
     while((dp = readdir(dir))){
         if(strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0){
@@ -348,20 +358,29 @@ int handleDir(char* dirname){
         strcat(buf,"/");
         strcat(buf,dp->d_name);
         stat(buf, &path_stat);
+
+        tInput* new = (tInput*)malloc(sizeof(tInput));
+        new->front = front;
+        new->lock = lock;
+        new->name = buf;
+        
         // is a directory
         if (S_ISDIR(path_stat.st_mode)){
             pthread_t thread_id;
-            //addThread();
-            printf("|%s|\n", dp->d_name);
-            pthread_create(&thread_id, NULL, handleDir, buf);
+            phead = addThread(phead, thread_id);
+            new->phead = phead;
+            pthread_create(&thread_id, NULL, handleDir, new);
             
-            
+
         // is a regular file
         } else if (S_ISREG(path_stat.st_mode)) {
-            
-            handleFile(buf);
+            pthread_t thread_id;
+            phead = addThread(phead, thread_id);
+            new->phead = phead;
+            pthread_create(&thread_id, NULL, handleFile, new);
         }
         free(buf);
+        free(new);
     }
     
     closedir(dir);
@@ -375,16 +394,20 @@ int main(int argc, char **argv){
         return -1;
     }
     char *dirname = argv[1];
-    DIR* dir = opendir(dirname);
     if(validDir(dirname) == -1){
         printf("Invalid folder\n");
         exit(0);
     }
-    closedir(dir);
-    
+    tInput* input = (tInput*)malloc(sizeof(tInput)); 
+    pthreads* phead = NULL;
+    pthread_mutex_t* lock;
+    struct FileNode* front = NULL;
 
-    initialize();
-    handleDir(dirname);
-    analyzeFiles();
+    input->front = front;
+    input->lock = lock;
+    input->name = dirname;
+    input->phead = phead; 
 
+    handleDir(front);
+    free(input);
 }
