@@ -281,7 +281,7 @@ void printPairs(struct FileNode* head) {
 */
 
 typedef struct pthreads {
-    pthread_t thread_id;
+    pthread_t* thread_id;
     struct pthreads* next;
 }pthreads;
 
@@ -300,21 +300,17 @@ pthreads* addThread(pthreads *head, pthread_t* new){
     pthreads* newThread = (pthreads*)malloc(sizeof(pthreads));
     newThread->thread_id = new;
     newThread->next = NULL;
+    int counter = 0;
     if(head == NULL){
         return newThread;
     }
-    if(head->next == NULL){
-        head->next = newThread;
-    } else {
-        pthreads* ref = head;
-        while(1){
-            if(ref->next == NULL){
-                ref->next = newThread;
-                break;
-            }
-            ref = ref->next;
-        };
+    pthreads* ref = head;
+    while(ref->next != NULL){
+        counter+=1;
+        ref = ref->next;
     }
+    ref->next = newThread;
+    printf("   added thread %d\n",counter);
     return head;
 }
 
@@ -337,18 +333,17 @@ int validDir(char* dirname){
 }
 
 void* handleDir(void *vinput){
+    printf("peeee");
     //printf("thread id is %d\n", pthread_self());
     tInput *input = vinput;
     char* dirname = input->name;
     
-    printf("||%s||\n",input->name);
-    pthreads* phead = input->phead;
-    pthread_mutex_t* lock = input->lock;
-    struct FileNode* front = input->front;
-    
+    printf("%s\n",input->name);
+
     if(validDir(dirname) == -1){
         return NULL;
     }
+    
     DIR* dir = opendir(dirname);
     struct dirent *dp;
     struct stat path_stat;
@@ -360,53 +355,44 @@ void* handleDir(void *vinput){
         int size = strlen(dirname) + strlen(dp->d_name) + 1;
         char *buf = malloc(size*sizeof(char));
         strcpy(buf,dirname);
-        //free(dirname);
         strcat(buf,"/");
         strcat(buf,dp->d_name);
         stat(buf, &path_stat);
-        //printf("----%s-----\n",buf);
         
         tInput* new = (tInput*)malloc(sizeof(tInput));
         new->name = buf;
-        new->front = front;
-        new->lock = lock;
+        new->phead = input->phead;
+        new->front = input->front;
+        new->lock = input->lock;
         
         // is a directory
         if (S_ISDIR(path_stat.st_mode)){
-            //printf("folder:%s\n", new->name);
-            pthread_t* thread_id;
-            phead = addThread(phead, thread_id);
-            new->phead = phead;
-            int rc = pthread_create(thread_id, NULL, handleDir, (void*)new);
-            if(rc){
-                printf("ERR; pthread_create() ret = %d\n", rc);
-                exit(-1);
-            }
-            //handleDir(new);
+            pthread_t thread_id;
+            pthread_mutex_lock(new->lock);
+            new->phead = addThread(new->phead, &thread_id);
+            pthread_mutex_unlock(new->lock);
+            pthread_create(&thread_id, NULL, handleDir, (void*)new);
+            //handleDir((void*)new);
         // is a regular file
         } else if (S_ISREG(path_stat.st_mode)) {
-            pthread_t* thread_id;
-            phead = addThread(phead, thread_id);
-            new->phead = phead;
+            pthread_t thread_id;
+            pthread_mutex_lock(new->lock);
+            new->phead = addThread(new->phead, &thread_id);
+            pthread_mutex_unlock(new->lock);
+
             printf("goin into file %s\n", new->name);
             //pthread_create(&thread_id, NULL, handleFile, new);
         }
-        
-        
-    }
-    free(input);
-    free(input->name);
+    }    
     closedir(dir);
+    free(input->name);
+    free(input);
+    pthread_exit(NULL);
 }
 
-
-
-
-
-
-void joinThread(pthreads* phead){   
+void joinThread(pthreads* phead){
     while(phead->next != NULL){
-        pthread_join(phead->thread_id, NULL);
+        pthread_join(*(phead->thread_id), NULL);
     }
 }
 
@@ -415,6 +401,7 @@ void joinThread(pthreads* phead){
 
 
 int main(int argc, char **argv){
+    
     // Read in directory and error if invalid number of arguments
     if(argc != 2){
         printf("Invalid number of arguments");
@@ -431,9 +418,6 @@ int main(int argc, char **argv){
     
     pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-    printf("the n word");
-    
-    printf("the n word");
     struct FileNode* front = NULL;
 
     input->front = front;
@@ -441,12 +425,14 @@ int main(int argc, char **argv){
     input->name = dirname;
     input->phead = phead; 
     //printf("%s\n",input->name);
-    handleDir(input);
-    printThread(phead);
+    pthread_t thread_id;
+    input->phead = addThread(input->phead, &thread_id);
+    pthread_create(&thread_id, NULL, handleDir, (void*)input);
+    //printThread(phead);
     
-    free(input);
+    
     
     joinThread(phead);
-    
+    //free(input);
     printf("the n word");
 }
